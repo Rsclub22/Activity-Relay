@@ -1,54 +1,172 @@
-<html>
-  <head>
-    <title>Yukimochi Relay at {{ .Domain }}</title>
-    <!-- Taken from https://stackoverflow.com/questions/26445755/html-add-icon-to-browser-tab/26446734#26446734 -->
-    <!-- Firefox/Chrome -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wagnersnetz.de Relay at {{ .Domain }}</title>
+
+    <!-- Icons for the browser tab -->
     <link rel="icon" type="image/png" href="{{ .ServiceIcon }}" sizes="16x16">
     <link rel="icon" type="image/png" href="{{ .ServiceIcon }}" sizes="32x32">
-    
-    <!-- IE -->
-    <link rel="icon" type="image/x-icon" href="{{ .ServiceIcon }}" >
+    <link rel="icon" type="image/x-icon" href="{{ .ServiceIcon }}">
     <link rel="shortcut icon" type="image/x-icon" href="{{ .ServiceIcon }}"/>
 
-    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
+    <!-- Bootstrap 5 integration -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
 
+    <!-- Modern, sleek styling -->
     <style>
-      p { color: #EBDBB2; font-family: monospace, arial; font-size: 100%; }
-      li { color: #EBDBB2; font-family: monospace, arial; font-size: 100%; }
-      body { background-color: #282828; }
-      a { color: #458588; }
-      a:visited { color: #83a598; }
-      a:hover { color: #83a598; }
-    </style>
-  </head>
+        :root {
+            --background-dark: #1d1f21;
+            --text-light: #f5f5f5;
+            --text-muted: #aaaaaa;
+            --accent-color: #007bff;
+            --accent-color-hover: #0056b3;
+            --notice-background: #ffc107; /* Yellow background */
+            --notice-text: #ffffff; /* White text */
+        }
 
-  <body>
+        body {
+            background-color: var(--background-dark);
+            color: var(--text-light);
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        a {
+            color: var(--accent-color);
+            text-decoration: none;
+        }
+
+        a:hover {
+            color: var(--accent-color-hover);
+        }
+
+        .container {
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-weight: 700;
+            font-size: 2rem;
+            margin-bottom: 1.5rem;
+            color: var(--text-light);
+        }
+
+        p {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            color: var(--text-muted);
+        }
+
+        ul {
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        .card {
+            background-color: #2b2f33;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+        }
+
+        .notice {
+            background-color: var(--notice-background);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            color: var(--notice-text); /* Explicit white text */
+            border: 1px solid #e0a800;
+        }
+
+        /* Ensure white text in notice */
+        .notice p {
+            color: #ffffff !important; /* Force white text for all paragraphs inside notice */
+        }
+
+        .service-image img {
+            max-width: 100%;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .instances {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .instance-item {
+            background-color: #333;
+            padding: 10px 15px;
+            border-radius: 6px;
+            flex: 1 1 calc(50% - 10px);
+            margin-bottom: 10px;
+            color: var(--text-light);
+            text-align: center;
+        }
+
+        .footer {
+            margin-top: 2rem;
+            font-size: 0.9rem;
+            text-align: center;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+
+<body>
     <div class="container">
-      <div class="row">
-        <p>This is an Yukimochi Activity Relay for fediverse instances.</p>
-        <p>{{ .ServiceSummary }}</p>
-        <p>To subscribe to this relay use the following URLs:
-          <ul>
-            <li>Pleroma: <a href="{{ .Domain }}/actor">{{ .Domain }}/actor</a></li>
-            <li>Mastodon: <a href="{{ .Domain }}/inbox">{{ .Domain }}/inbox</a></li>
-          </ul>
-        </p>
-        <p>To host your own relay, you may download the code at this address: <a href="https://github.com/yukimochi/Activity-Relay">https://github.com/yukimochi/Activity-Relay</a></p><br>
-      </div>
-      
-      <div class="row">
-        <div class="col-sm-4">
-          <p>List of {{ .NumDomains }} registered instances:<br>
-            {{ range .SubbedDomains }}
-              {{ . }}<br>
-            {{ end }}
-          </p>
+        <h1>Welcome to the Wagnersnetz.de Relay</h1>
+
+        <div class="card">
+            <p>This is the Wagnersnetz.de Activity Relay for fediverse instances.</p>
+            <p>{{ .ServiceSummary }}</p>
+
+            <div class="service-image">
+                <img src="{{ .ServiceImage }}">
+            </div>
+
+            <p>To subscribe to this relay, use the following URLs:</p>
+            <ul>
+                <li><strong>Pleroma:</strong> <a href="{{ .Domain }}/actor">{{ .Domain }}/actor</a></li>
+                <li><strong>Mastodon:</strong> <a href="{{ .Domain }}/inbox">{{ .Domain }}/inbox</a></li>
+            </ul>
+            <p>To host your own relay, you can download the code from: 
+                <a href="https://github.com/yukimochi/Activity-Relay">https://github.com/yukimochi/Activity-Relay</a>
+            </p>
+	    <p>This relay is a fork form <a href="https://github.com/Hashfastr/Activity-Relay">https://github.com/Hashfastr/Activity-Relay</a> and the modified source code is here: <a href="https://github.com/Rsclub22/Activity-Relay">https://github.com/Rsclub22/Activity-Relay</a>
+	    </p>
         </div>
-        <div class="col-sm-8">
-          <img src="{{ .ServiceImage }}">
+
+        <!-- Uncomment, if you want to publish a notice -->
+        <!-- 
+        <div class="notice">
+        </div> 
+        -->
+
+        <div class="card mt-4">
+            <p>List of registered instances ({{ .NumDomains }}):</p>
+            <div class="instances">
+                {{ range .SubbedDomains }}
+                <div class="instance-item">{{ . }}</div>
+                {{ end }}
+            </div>
         </div>
-      </div>
+
+        <div class="footer">
+            <p>&copy; 2024 Philipp Wagner</p>
+        </div>
     </div>
-  </body>
+
+    <!-- Bootstrap JS (optional) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
 </html>
