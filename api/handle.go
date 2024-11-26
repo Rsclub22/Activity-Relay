@@ -8,7 +8,6 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
-
 	"github.com/sirupsen/logrus"
 	"github.com/yukimochi/Activity-Relay/models"
 )
