@@ -13,9 +13,29 @@ import (
 	"github.com/yukimochi/Activity-Relay/models"
 )
 
+// maxInboxBodySize limits the size of an inbox request body.
+const maxInboxBodySize = 1 << 20 // 1 MiB
+
+// errRequestBodyTooLarge signals an inbox request body over maxInboxBodySize.
+var errRequestBodyTooLarge = errors.New("request body is too large")
+
 func decodeActivity(request *http.Request) (*models.Activity, *models.Actor, []byte, error) {
 	request.Header.Set("Host", request.Host)
-	body, err := io.ReadAll(request.Body)
+	body, err := io.ReadAll(io.LimitReader(request.Body, maxInboxBodySize+1))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if len(body) > maxInboxBodySize {
+		return nil, nil, nil, errRequestBodyTooLarge
+	}
+
+	// Verify Digest
+	givenDigest := request.Header.Get("Digest")
+	hash := sha256.Sum256(body)
+	calculatedDigest := "SHA-256=" + base64.StdEncoding.EncodeToString(hash[:])
+	if givenDigest != calculatedDigest {
+		return nil, nil, nil, errors.New("digest header is mismatch")
+	}
 
 	// Verify HTTPSignature
 	verifier, err := httpsig.NewVerifier(request)
@@ -23,7 +43,10 @@ func decodeActivity(request *http.Request) (*models.Activity, *models.Actor, []b
 		return nil, nil, nil, err
 	}
 	KeyID := verifier.KeyId()
-	keyOwnerActor, err := models.NewActivityPubActorFromRemoteActor(KeyID, fmt.Sprintf("%s (golang net/http; Activity-Relay %s; %s)", GlobalConfig.ServerServiceName(), version, GlobalConfig.ServerHostname().Host), ActorCache)
+	relayKeyID := RelayActor.PublicKey.ID
+	relayPrivateKey := GlobalConfig.ActorKey()
+	uaString := fmt.Sprintf("%s (golang net/http; Activity-Relay %s; %s)", GlobalConfig.ServerServiceName(), version, GlobalConfig.ServerHostname().Host)
+	keyOwnerActor, err := models.NewActivityPubActorFromRemoteActor(KeyID, uaString, ActorCache, relayKeyID, relayPrivateKey)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -39,24 +62,13 @@ func decodeActivity(request *http.Request) (*models.Activity, *models.Actor, []b
 		return nil, nil, nil, err
 	}
 
-	// Verify Digest
-	givenDigest := request.Header.Get("Digest")
-	hash := sha256.New()
-	hash.Write(body)
-	b := hash.Sum(nil)
-	calculatedDigest := "SHA-256=" + base64.StdEncoding.EncodeToString(b)
-
-	if givenDigest != calculatedDigest {
-		return nil, nil, nil, errors.New("digest header is mismatch")
-	}
-
 	// Parse Activity
 	var activity models.Activity
 	err = json.Unmarshal(body, &activity)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	remoteActor, err := models.NewActivityPubActorFromRemoteActor(activity.Actor, fmt.Sprintf("%s (golang net/http; Activity-Relay %s; %s)", GlobalConfig.ServerServiceName(), version, GlobalConfig.ServerHostname().Host), ActorCache)
+	remoteActor, err := models.NewActivityPubActorFromRemoteActor(activity.Actor, uaString, ActorCache, relayKeyID, relayPrivateKey)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -69,7 +81,7 @@ func fetchOriginalActivityFromURL(url string) (*models.Activity, *models.Actor, 
 	if err != nil {
 		return nil, nil, err
 	}
-	remoteActor, err := models.NewActivityPubActorFromRemoteActor(remoteActivity.Actor, fmt.Sprintf("%s (golang net/http; Activity-Relay %s; %s)", GlobalConfig.ServerServiceName(), version, GlobalConfig.ServerHostname().Host), ActorCache)
+	remoteActor, err := models.NewActivityPubActorFromRemoteActor(remoteActivity.Actor, fmt.Sprintf("%s (golang net/http; Activity-Relay %s; %s)", GlobalConfig.ServerServiceName(), version, GlobalConfig.ServerHostname().Host), ActorCache, RelayActor.PublicKey.ID, GlobalConfig.ActorKey())
 	if err != nil {
 		return &remoteActivity, nil, err
 	}
