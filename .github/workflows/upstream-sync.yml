@@ -2,7 +2,7 @@ name: Upstream Sync
 
 # Merged automatisch yukimochi/Activity-Relay (master) in diesen Fork.
 # - sauberer Merge + gruene Tests -> Push auf master + Build anstossen
-# - Konflikt -> Issue; Tests rot -> PR vom Branch upstream-sync
+# - Konflikt -> PR vom Branch upstream-master; Tests rot -> PR vom Branch upstream-sync
 on:
   schedule:
     - cron: '0 4 * * 1'
@@ -11,7 +11,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  issues: write
   actions: write
 
 concurrency:
@@ -83,10 +82,12 @@ jobs:
             || echo "PR existiert bereits"
           exit 1
 
-      - name: Konflikt -> Issue
+      - name: Konflikt -> PR mit Upstream-Stand
         if: steps.merge.outputs.result == 'conflict'
         run: |
-          gh issue create \
+          git push -f origin upstream/master:refs/heads/upstream-master
+          gh pr create --base master --head upstream-master \
             --title "Upstream-Sync ${{ steps.merge.outputs.upstream }}: Merge-Konflikt" \
-            --body "Der automatische Merge von yukimochi/Activity-Relay (master @ ${{ steps.merge.outputs.upstream }}) hat Konflikte und muss manuell gemacht werden: git fetch upstream && git merge upstream/master. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            --body "Der automatische Merge von yukimochi/Activity-Relay (master @ ${{ steps.merge.outputs.upstream }}) hat Konflikte. Bitte lokal mergen (git fetch upstream && git merge upstream/master) oder die Konflikte in diesem PR loesen. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            || echo "PR existiert bereits"
           exit 1
