@@ -1,0 +1,92 @@
+name: Upstream Sync
+
+# Merged automatisch yukimochi/Activity-Relay (master) in diesen Fork.
+# - sauberer Merge + gruene Tests -> Push auf master + Build anstossen
+# - Konflikt -> Issue; Tests rot -> PR vom Branch upstream-sync
+on:
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      UPSTREAM: https://github.com/yukimochi/Activity-Relay.git
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Upstream holen und mergen
+        id: merge
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "$UPSTREAM"
+          git fetch upstream master --tags
+          if git merge-base --is-ancestor upstream/master HEAD; then
+            echo "Fork ist aktuell."; echo "result=uptodate" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          UP=$(git rev-parse --short upstream/master)
+          echo "upstream=$UP" >> "$GITHUB_OUTPUT"
+          if git merge --no-edit -m "Merge upstream yukimochi/Activity-Relay ($UP)" upstream/master; then
+            echo "result=merged" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort
+            echo "result=conflict" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v7
+        if: steps.merge.outputs.result == 'merged'
+        with:
+          go-version-file: go.mod
+
+      - name: Tests
+        id: test
+        if: steps.merge.outputs.result == 'merged'
+        continue-on-error: true
+        env:
+          REDIS_URL: redis://localhost:6379
+        run: go test -p 1 ./...
+
+      - name: Push nach master und Build anstossen
+        if: steps.merge.outputs.result == 'merged' && steps.test.outcome == 'success'
+        run: |
+          git push origin HEAD:master
+          gh workflow run build.yml --ref master
+
+      - name: Tests rot -> PR
+        if: steps.merge.outputs.result == 'merged' && steps.test.outcome != 'success'
+        run: |
+          git push -f origin HEAD:upstream-sync
+          gh pr create --base master --head upstream-sync \
+            --title "Upstream-Sync ${{ steps.merge.outputs.upstream }}: Tests fehlgeschlagen" \
+            --body "Automatischer Merge von yukimochi/Activity-Relay war konfliktfrei, aber die Tests sind rot. Bitte pruefen. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            || echo "PR existiert bereits"
+          exit 1
+
+      - name: Konflikt -> Issue
+        if: steps.merge.outputs.result == 'conflict'
+        run: |
+          gh issue create \
+            --title "Upstream-Sync ${{ steps.merge.outputs.upstream }}: Merge-Konflikt" \
+            --body "Der automatische Merge von yukimochi/Activity-Relay (master @ ${{ steps.merge.outputs.upstream }}) hat Konflikte und muss manuell gemacht werden: git fetch upstream && git merge upstream/master. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          exit 1
