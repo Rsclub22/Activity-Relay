@@ -35,7 +35,7 @@ func relayActivityV2(args ...string) error {
 		return errors.New("activity ttl expired")
 	}
 
-	err = sendActivity(inboxURL, RelayActor.ID, []byte(body), GlobalConfig.ActorKey())
+	err = sendActivity(inboxURL, RelayActor.PublicKey.ID, []byte(body), GlobalConfig.ActorKey())
 	if err != nil {
 		domain, _ := url.Parse(inboxURL)
 		pushErrorLogScript := "local change = redis.call('HSETNX', KEYS[1], 'last_error', ARGV[1]); if change == 1 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end;"
@@ -49,7 +49,7 @@ func relayActivityV2(args ...string) error {
 func registerActivity(args ...string) error {
 	inboxURL := args[0]
 	body := args[1]
-	err := sendActivity(inboxURL, RelayActor.ID, []byte(body), GlobalConfig.ActorKey())
+	err := sendActivity(inboxURL, RelayActor.PublicKey.ID, []byte(body), GlobalConfig.ActorKey())
 	return err
 }
 
@@ -92,7 +92,7 @@ func initialize(globalConfig *models.RelayConfig) error {
 	if err != nil {
 		return err
 	}
-	HttpClient = &http.Client{Timeout: time.Duration(5) * time.Second}
+	HttpClient = globalConfig.OutboundHTTPClient(5 * time.Second)
 
 	RelayActor = models.NewActivityPubActorFromRelayConfig(globalConfig)
 	newNullLogger := NewNullLogger()

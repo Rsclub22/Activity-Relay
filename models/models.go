@@ -1,6 +1,7 @@
 package models
 
 import (
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"io"
@@ -8,9 +9,44 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/go-fed/httpsig"
 	"github.com/google/uuid"
 	"github.com/patrickmn/go-cache"
 )
+
+// httpClient is used to fetch remote actors and activities.
+var httpClient = (&RelayConfig{}).OutboundHTTPClient(10 * time.Second)
+
+// maxRemoteBodySize limits the size of a remote actor/activity response.
+const maxRemoteBodySize = 1 << 20 // 1 MiB
+
+// readRemoteBody reads a remote response body up to maxRemoteBodySize.
+func readRemoteBody(body io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(body, maxRemoteBodySize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxRemoteBodySize {
+		return nil, errors.New("remote response body is too large")
+	}
+	return data, nil
+}
+
+func signGETRequest(req *http.Request, keyID string, privateKey *rsa.PrivateKey) error {
+	req.Header.Set("Host", req.URL.Host)
+	req.Header.Set("Date", time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05")+" GMT")
+	signer, _, err := httpsig.NewSigner(
+		[]httpsig.Algorithm{httpsig.RSA_SHA256},
+		httpsig.DigestSha256,
+		[]string{httpsig.RequestTarget, "Host", "Date"},
+		httpsig.Signature,
+		60*60,
+	)
+	if err != nil {
+		return err
+	}
+	return signer.SignRequest(privateKey, keyID, req, nil)
+}
 
 // PublicKey : Activity Certificate.
 type PublicKey struct {
@@ -85,7 +121,7 @@ func NewActivityPubActorFromRelayConfig(globalConfig *RelayConfig) Actor {
 }
 
 // NewActivityPubActorFromRemoteActor : Retrieve Actor from remote instance.
-func NewActivityPubActorFromRemoteActor(url string, uaString string, cache *cache.Cache) (Actor, error) {
+func NewActivityPubActorFromRemoteActor(url string, uaString string, cache *cache.Cache, keyID string, privateKey *rsa.PrivateKey) (Actor, error) {
 	var actor = new(Actor)
 	var err error
 	cacheData, found := cache.Get(url)
@@ -97,10 +133,18 @@ func NewActivityPubActorFromRemoteActor(url string, uaString string, cache *cach
 			return *actor, nil
 		}
 	}
-	req, _ := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return *actor, err
+	}
 	req.Header.Set("Accept", "application/activity+json")
 	req.Header.Set("User-Agent", uaString)
-	client := new(http.Client)
+	if privateKey != nil && keyID != "" {
+		if err := signGETRequest(req, keyID, privateKey); err != nil {
+			return *actor, err
+		}
+	}
+	client := httpClient
 	resp, err := client.Do(req)
 	if err != nil {
 		return *actor, err
@@ -111,7 +155,10 @@ func NewActivityPubActorFromRemoteActor(url string, uaString string, cache *cach
 		return *actor, errors.New(resp.Status)
 	}
 
-	data, _ := io.ReadAll(resp.Body)
+	data, err := readRemoteBody(resp.Body)
+	if err != nil {
+		return *actor, err
+	}
 	err = json.Unmarshal(data, &actor)
 	if err != nil {
 		return *actor, err
@@ -129,6 +176,39 @@ type Activity struct {
 	Object  interface{} `json:"object,omitempty"`
 	To      []string    `json:"to,omitempty"`
 	Cc      []string    `json:"cc,omitempty"`
+}
+
+// UnmarshalJSON normalizes the `to` and `cc` properties into []string.
+func (a *Activity) UnmarshalJSON(data []byte) error {
+	type alias Activity
+	aux := &struct {
+		*alias
+		To json.RawMessage `json:"to,omitempty"`
+		Cc json.RawMessage `json:"cc,omitempty"`
+	}{
+		alias: (*alias)(a),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	a.To = parseStringOrArray(aux.To)
+	a.Cc = parseStringOrArray(aux.Cc)
+	return nil
+}
+
+func parseStringOrArray(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		return arr
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return []string{s}
+	}
+	return nil
 }
 
 // GenerateReply : Generate activity to activity's actor.
@@ -206,10 +286,13 @@ func NewActivityPubActivity(actor Actor, to []string, object interface{}, activi
 func NewActivityPubActivityFromRemoteActivity(url string, uaString string) (Activity, error) {
 	var activity = new(Activity)
 	var err error
-	req, _ := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return *activity, err
+	}
 	req.Header.Set("Accept", "application/activity+json")
 	req.Header.Set("User-Agent", uaString)
-	client := new(http.Client)
+	client := httpClient
 	resp, err := client.Do(req)
 	if err != nil {
 		return *activity, err
@@ -220,7 +303,10 @@ func NewActivityPubActivityFromRemoteActivity(url string, uaString string) (Acti
 		return *activity, errors.New(resp.Status)
 	}
 
-	data, _ := io.ReadAll(resp.Body)
+	data, err := readRemoteBody(resp.Body)
+	if err != nil {
+		return *activity, err
+	}
 	err = json.Unmarshal(data, &activity)
 	if err != nil {
 		return *activity, err

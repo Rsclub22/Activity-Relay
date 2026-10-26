@@ -38,22 +38,28 @@ func appendSignature(request *http.Request, body *[]byte, KeyID string, privateK
 }
 
 func sendActivity(inboxURL string, KeyID string, body []byte, privateKey *rsa.PrivateKey) error {
-	req, _ := http.NewRequest("POST", inboxURL, bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", inboxURL, bytes.NewBuffer(body))
+	if err != nil {
+		return errors.New(inboxURL + ": " + err.Error())
+	}
 	req.Header.Set("Content-Type", "application/activity+json")
 	req.Header.Set("User-Agent", fmt.Sprintf("%s (golang net/http; Activity-Relay %s; %s)", GlobalConfig.ServerServiceName(), version, GlobalConfig.ServerHostname().Host))
 	req.Header.Set("Date", httpdate.Time2Str(time.Now()))
-	appendSignature(req, &body, KeyID, privateKey)
+	if err := appendSignature(req, &body, KeyID, privateKey); err != nil {
+		return errors.New(inboxURL + ": " + err.Error())
+	}
 	resp, err := HttpClient.Do(req)
 	if err != nil {
-		urlErr := err.(*url.Error)
-		errMsg := ""
-
-		if urlErr.Timeout() {
-			errMsg = "Client.Timeout exceeded while awaiting headers"
-		} else {
-			errMsg = urlErr.Unwrap().Error()
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			if urlErr.Timeout() {
+				return errors.New(inboxURL + ": Client.Timeout exceeded while awaiting headers")
+			}
+			if urlErr.Err != nil {
+				return errors.New(inboxURL + ": " + urlErr.Err.Error())
+			}
 		}
-		return errors.New(inboxURL + ": " + errMsg)
+		return errors.New(inboxURL + ": " + err.Error())
 	}
 	defer resp.Body.Close()
 

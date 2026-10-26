@@ -43,7 +43,22 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func useLocalDeliveryTransport(t *testing.T) {
+	t.Helper()
+	original := HttpClient
+	client := *original
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	client.Transport = transport
+	HttpClient = &client
+	t.Cleanup(func() {
+		HttpClient = original
+		transport.CloseIdleConnections()
+	})
+}
+
 func TestRelayActivity(t *testing.T) {
+	useLocalDeliveryTransport(t)
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(r.Body)
 		if string(data) != "ExampleData" || r.Header.Get("Content-Type") != "application/activity+json" {
@@ -82,16 +97,17 @@ func TestRelayActivityNoHost(t *testing.T) {
 
 	err := relayActivityV2("http://nohost.example.jp", activityID.String())
 	if err == nil {
-		t.Fatal("fail - Error not reported")
+		t.Fatal("Expected error to be reported for nohost, but got nil")
 	}
 	domain, _ := url.Parse("http://nohost.example.jp")
 	data, _ := RedisClient.HGet(context.TODO(), "relay:statistics:"+domain.Host, "last_error").Result()
 	if data == "" {
-		t.Fatal("fail - Error not saved")
+		t.Fatalf("Expected last_error to be saved for domain %s, but got empty string", domain.Host)
 	}
 }
 
 func TestRelayActivityResp500(t *testing.T) {
+	useLocalDeliveryTransport(t)
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		w.Write(nil)
@@ -106,16 +122,17 @@ func TestRelayActivityResp500(t *testing.T) {
 
 	err := relayActivityV2(s.URL, activityID.String())
 	if err == nil {
-		t.Fatal("fail - Error not reported")
+		t.Fatal("Expected error to be reported for 500 response, but got nil")
 	}
 	domain, _ := url.Parse(s.URL)
 	data, _ := RedisClient.HGet(context.TODO(), "relay:statistics:"+domain.Host, "last_error").Result()
 	if data == "" {
-		t.Fatal("fail - Error not saved")
+		t.Fatalf("Expected last_error to be saved for domain %s, but got empty string", domain.Host)
 	}
 }
 
 func TestRegisterActivity(t *testing.T) {
+	useLocalDeliveryTransport(t)
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(r.Body)
 		if string(data) != "data" || r.Header.Get("Content-Type") != "application/activity+json" {
@@ -130,7 +147,7 @@ func TestRegisterActivity(t *testing.T) {
 
 	err := registerActivity(s.URL, "data")
 	if err != nil {
-		t.Fatal("fail - Data transfer not collect")
+		t.Fatalf("Expected registerActivity to succeed, but got error: %v", err)
 	}
 }
 
@@ -142,11 +159,12 @@ func TestRegisterActivityNoHost(t *testing.T) {
 
 	err := registerActivity("http://nohost.example.jp", "data")
 	if err == nil {
-		t.Fatal("fail - Error not reported.")
+		t.Fatal("Expected error to be reported for nohost, but got nil")
 	}
 }
 
 func TestRegisterActivityResp500(t *testing.T) {
+	useLocalDeliveryTransport(t)
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		w.Write(nil)
@@ -155,6 +173,6 @@ func TestRegisterActivityResp500(t *testing.T) {
 
 	err := registerActivity(s.URL, "data")
 	if err == nil {
-		t.Fatal("fail - Error not reported")
+		t.Fatal("Expected error to be reported for 500 response, but got nil")
 	}
 }

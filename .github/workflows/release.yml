@@ -1,37 +1,42 @@
 name: Release Build
+
+# Fork Rsclub22/Activity-Relay: baut bei einem v*-Release ein versioniertes Image nach GHCR.
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build:
     name: Release Build
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@master
-      - id: variables
-        env:
-          GITHUB_REF: ${{ github.ref }}
-        run: |
-          git fetch --prune --unshallow
-          echo "ref=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-      - uses: docker/setup-qemu-action@v2
-      - uses: docker/setup-buildx-action@v2
-      - uses: docker/login-action@v2
+      - uses: actions/checkout@v7
         with:
-          username: ${{ secrets.REGISTRY_USER }}
-          password: ${{ secrets.REGISTRY_PASS }}
-      - uses: docker/login-action@v2
+          fetch-depth: 0
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
-          username: ${{ secrets.REGISTRY_USER }}
+          username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v3
+      - id: meta
+        uses: docker/metadata-action@v6
         with:
-          push: true
+          images: ghcr.io/${{ github.repository_owner }}/activity-relay
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+      - uses: docker/build-push-action@v7
+        with:
           context: .
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ secrets.REGISTRY_USER }}/activity-relay:${{ steps.variables.outputs.ref }}
-            ghcr.io/${{ secrets.REGISTRY_USER }}/activity-relay/activity-relay:${{ steps.variables.outputs.ref }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

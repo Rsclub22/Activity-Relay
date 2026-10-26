@@ -5,8 +5,11 @@ import (
 	"crypto/rsa"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -17,21 +20,26 @@ import (
 
 // RelayConfig contains valid configuration.
 type RelayConfig struct {
-	actorKey        *rsa.PrivateKey
-	domain          *url.URL
-	redisClient     *redis.Client
-	redisURL        string
-	serverBind      string
-	serviceName     string
-	serviceSummary  string
-	serviceIconURL  *url.URL
-	serviceImageURL *url.URL
-	serviceLanding  string
-	jobConcurrency  int
+	actorKey             *rsa.PrivateKey
+	domain               *url.URL
+	redisClient          *redis.Client
+	redisURL             string
+	serverBind           string
+	serviceName          string
+	serviceSummary       string
+	serviceIconURL       *url.URL
+	serviceImageURL      *url.URL
+	serviceLanding       string
+	jobConcurrency       int
+	outboundBlockedCIDRs []netip.Prefix
+	outboundTransport    *http.Transport
 }
 
 // NewRelayConfig create valid RelayConfig from viper configuration.
 func NewRelayConfig() (*RelayConfig, error) {
+	if err := viper.BindEnv("OUTBOUND_BLOCKED_CIDRS"); err != nil {
+		return nil, err
+	}
 	domain, err := url.ParseRequestURI("https://" + viper.GetString("RELAY_DOMAIN"))
 	if err != nil {
 		return nil, errors.New("RELAY_DOMAIN: " + err.Error())
@@ -49,6 +57,11 @@ func NewRelayConfig() (*RelayConfig, error) {
 	if err != nil {
 		logrus.Warn("RELAY_IMAGE: INVALID OR EMPTY. THIS COLUMN IS DISABLED.")
 		imageURL = nil
+	}
+
+	outboundBlockedCIDRs, err := parseOutboundBlockedCIDRs(viper.GetString("OUTBOUND_BLOCKED_CIDRS"))
+	if err != nil {
+		return nil, err
 	}
 
 	jobConcurrency := viper.GetInt("JOB_CONCURRENCY")
@@ -74,19 +87,23 @@ func NewRelayConfig() (*RelayConfig, error) {
 
 	serverBind := viper.GetString("RELAY_BIND")
 
-	return &RelayConfig{
-		actorKey:        privateKey,
-		domain:          domain,
-		redisClient:     redisClient,
-		redisURL:        redisURL,
-		serverBind:      serverBind,
-		serviceName:     viper.GetString("RELAY_SERVICENAME"),
-		serviceSummary:  viper.GetString("RELAY_SUMMARY"),
-		serviceIconURL:  iconURL,
-		serviceImageURL: imageURL,
-		serviceLanding:  serviceLanding,
-		jobConcurrency:  jobConcurrency,
-	}, nil
+	relayConfig := &RelayConfig{
+		actorKey:             privateKey,
+		domain:               domain,
+		redisClient:          redisClient,
+		redisURL:             redisURL,
+		serverBind:           serverBind,
+		serviceName:          viper.GetString("RELAY_SERVICENAME"),
+		serviceSummary:       viper.GetString("RELAY_SUMMARY"),
+		serviceIconURL:       iconURL,
+		serviceImageURL:      imageURL,
+		serviceLanding:       serviceLanding,
+		jobConcurrency:       jobConcurrency,
+		outboundBlockedCIDRs: outboundBlockedCIDRs,
+	}
+	relayConfig.outboundTransport = newOutboundHTTPTransport(outboundBlockedCIDRs)
+	httpClient = relayConfig.OutboundHTTPClient(10 * time.Second)
+	return relayConfig, nil
 }
 
 // ServerBind is API Server's bind interface definition.
